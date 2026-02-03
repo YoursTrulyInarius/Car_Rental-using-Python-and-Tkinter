@@ -58,6 +58,10 @@ class CarRentalService:
         return session.query(Vehicle).get(vehicle_id)
 
     @provide_session
+    def get_available_vehicles(self, session):
+        return session.query(Vehicle).filter_by(status='Available').all()
+
+    @provide_session
     def get_vehicle_count_by_model(self, session, make, model, year):
         return session.query(Vehicle).filter_by(make=make, model=model, year=year).count()
 

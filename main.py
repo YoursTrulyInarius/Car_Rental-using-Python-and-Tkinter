@@ -17,25 +17,31 @@ class CarRentalApp(tb.Window):
         self.minsize(1000, 700) # Ensure window doesn't get too small
 
     def create_scrolled_tree(self, parent, columns, height=None, bootstyle="info"):
-        """Helper to create a treeview with scrollbars"""
         frame = tb.Frame(parent)
         frame.pack(fill=BOTH, expand=YES, pady=10)
         
-        # Scrollbars
-        y_scroll = tb.Scrollbar(frame, orient=VERTICAL)
-        y_scroll.pack(side=RIGHT, fill=Y)
-        x_scroll = tb.Scrollbar(frame, orient=HORIZONTAL)
-        x_scroll.pack(side=BOTTOM, fill=X)
+        tree = tb.Treeview(frame, columns=columns, show="headings", height=height or 10, bootstyle=bootstyle)
         
-        tree = tb.Treeview(frame, columns=columns, show='headings', height=height, bootstyle=bootstyle)
-        tree.pack(side=LEFT, fill=BOTH, expand=YES)
+        vsb = tb.Scrollbar(frame, orient="vertical", command=tree.yview)
+        hsb = tb.Scrollbar(frame, orient="horizontal", command=tree.xview)
+        tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
         
-        # Link scrollbars
-        tree.configure(yscrollcommand=y_scroll.set, xscrollcommand=x_scroll.set)
-        y_scroll.configure(command=tree.yview)
-        x_scroll.configure(command=tree.xview)
+        tree.grid(row=0, column=0, sticky="nsew")
+        vsb.grid(row=0, column=1, sticky="ns")
+        hsb.grid(row=1, column=0, sticky="ew")
+        
+        frame.rowconfigure(0, weight=1)
+        frame.columnconfigure(0, weight=1)
         
         return tree, frame
+
+    def validate_mobile_number(self, P):
+        """Validate that input is numeric and <= 11 characters."""
+        if P == "": # Allow empty (deleting)
+            return True
+        if P.isdigit() and len(P) <= 11:
+            return True
+        return False
 
     def create_main_layout(self):
         # Navigation Sidebar - Fixed width for stability
@@ -631,18 +637,35 @@ class CarRentalApp(tb.Window):
         ]
         entries = {}
 
+        vcmd = (self.register(self.validate_mobile_number), '%P')
+
         for label, key in fields:
             tb.Label(form_frame, text=label, font=("Helvetica", 10, "bold")).pack(anchor=W, pady=(15, 0))
-            entry = tb.Entry(form_frame)
+            if key == "contact":
+                entry = tb.Entry(form_frame, validate="key", validatecommand=vcmd)
+            else:
+                entry = tb.Entry(form_frame)
             entry.pack(fill=X, pady=5)
             entries[key] = entry
 
         def save():
             try:
+                name = entries['name'].get().strip()
+                contact = entries['contact'].get().strip()
+                license = entries['license'].get().strip()
+
+                if not name or not contact:
+                    messagebox.showwarning("Incomplete Form", "Please fill in the Name and Mobile Number.")
+                    return
+
+                if len(contact) != 11:
+                    messagebox.showwarning("Invalid Number", "Mobile number must be exactly 11 digits.")
+                    return
+
                 self.service.add_customer(
-                    name=entries['name'].get(),
-                    contact=entries['contact'].get(),
-                    license_details=entries['license'].get()
+                    name=name,
+                    contact=contact,
+                    license_details=license
                 )
                 messagebox.showinfo("Success", "Customer added successfully")
                 dialog.destroy()
@@ -743,14 +766,31 @@ class CarRentalApp(tb.Window):
         summary_total = tb.Label(summary_content, text="₱0.00", font=("Helvetica", 18, "bold"), bootstyle="success")
         summary_total.pack(pady=20)
 
+        # Vehicle Grouping Logic
+        vehicle_groups = {}
+        for v in vehicles:
+            key = (v.make, v.model, v.year, v.daily_rate)
+            if key not in vehicle_groups:
+                vehicle_groups[key] = []
+            vehicle_groups[key].append(v)
+        
+        display_to_group = {}
+        cb_values = []
+        for key, group in vehicle_groups.items():
+            make, model, year, rate = key
+            count = len(group)
+            display_str = f"{make} {model} ({year}) - ₱{rate:.2f}/day [{count} available]"
+            cb_values.append(display_str)
+            display_to_group[display_str] = group
+
         def update_cost_summary(*args):
             try:
-                # Get vehicle rate
+                # Get vehicle rate from selection
                 v_selection = vehicle_cb.get()
-                if not v_selection: return
-                v_id = int(v_selection.split(":")[0])
-                vehicle = next((v for v in vehicles if v.id == v_id), None)
-                if not vehicle: return
+                if not v_selection or v_selection not in display_to_group: return
+                
+                # Use the first vehicle in the group to get the rate
+                vehicle = display_to_group[v_selection][0]
                 
                 # Get date duration
                 start_date_str = rental_date_de.entry.get()
@@ -780,7 +820,7 @@ class CarRentalApp(tb.Window):
 
         # 2. Select Vehicle
         tb.Label(input_frame, text="2. Select Vehicle", font=("Helvetica", 10, "bold")).pack(anchor=W)
-        vehicle_cb = tb.Combobox(input_frame, values=[f"{v.id}: {v.make} {v.model} (₱{v.daily_rate}/day)" for v in vehicles], state="readonly")
+        vehicle_cb = tb.Combobox(input_frame, values=cb_values, state="readonly")
         vehicle_cb.pack(fill=X, pady=(5, 15))
         vehicle_cb.bind("<<ComboboxSelected>>", update_cost_summary)
 
@@ -817,13 +857,18 @@ class CarRentalApp(tb.Window):
                 return
             
             try:
-                c_id = int(customer_cb.get().split(":")[0])
-                v_id = int(vehicle_cb.get().split(":")[0])
-                # We need to update the service to accept custom start date or handle it here
-                # For now, let's pass the start date string if the service supports it, 
-                # or just use it for calculation logic if the service implies today.
-                # Looking at service.create_rental, it uses datetime.date.today(). 
-                # We should update service.create_rental to accept a start_date.
+                c_selection = customer_cb.get()
+                v_selection = vehicle_cb.get()
+                
+                c_id = int(c_selection.split(":")[0])
+                
+                # Get first available vehicle from the group
+                group = display_to_group.get(v_selection)
+                if not group:
+                    messagebox.showerror("Selection Error", "Invalid vehicle selection.")
+                    return
+                
+                v_id = group[0].id
                 
                 start_date = rental_date_de.entry.get()
                 ret_date = return_date_de.entry.get()
