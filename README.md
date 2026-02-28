@@ -29,22 +29,28 @@ A comprehensive desktop application designed to streamline car rental operations
 ## 🛠️ Technology Stack
 - **Language**: Python 3.12+
 - **GUI Framework**: Tkinter with `ttkbootstrap` (Modern Flat UI)
-- **Database**: SQLite
-- **ORM**: SQLAlchemy
-
 ## 📦 Installation & Usage
 
-1.  **Install Dependencies**:
+1.  **Clone the Repository** (if applicable).
+2.  **Install Dependencies**:
+    You can install all required libraries using:
     ```bash
     pip install ttkbootstrap sqlalchemy pandas
     ```
 
-2.  **Run the Application**:
+    Alternatively, install them manually one by one:
+    ```bash
+    pip install ttkbootstrap
+    pip install sqlalchemy
+    pip install pandas
+    ```
+
+3.  **Run the Application**:
     ```bash
     python main.py
     ```
 
-3.  **Default Admin**:
+4.  **Default Admin**:
     - The system auto-initializes. No login setup required for the local version.
 
 ---

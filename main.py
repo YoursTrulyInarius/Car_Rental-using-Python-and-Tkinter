@@ -37,11 +37,39 @@ class CarRentalApp(tb.Window):
 
     def validate_mobile_number(self, P):
         """Validate that input is numeric and <= 11 characters."""
-        if P == "": # Allow empty (deleting)
+        if P == "":  # Allow empty (deleting)
             return True
         if P.isdigit() and len(P) <= 11:
             return True
         return False
+
+    def validate_year(self, P):
+        """Validate that input is digits only, max 4 characters, no spaces."""
+        if P == "":
+            return True
+        if P.isdigit() and len(P) <= 4:
+            return True
+        return False
+
+    def validate_price(self, P):
+        """Validate that input is a positive decimal number (digits + at most one dot), no spaces."""
+        if P == "":
+            return True
+        if ' ' in P:
+            return False
+        # Allow digits and at most one decimal point
+        if P.count('.') <= 1 and P.replace('.', '').isdigit():
+            return True
+        return False
+
+    def format_date(self, date_obj):
+        """Format a date object into 'Month Day Year' (e.g., January 29 2026)."""
+        if not date_obj:
+            return "N/A"
+        try:
+            return date_obj.strftime("%B %d %Y")
+        except:
+            return str(date_obj)
 
     def create_main_layout(self):
         # Navigation Sidebar - Fixed width for stability
@@ -187,7 +215,8 @@ class CarRentalApp(tb.Window):
         tree.column("Cost", anchor=E, width=100)
 
         for rental in rentals[-5:]:
-            tree.insert("", END, values=(rental.customer.name, f"{rental.vehicle.make} {rental.vehicle.model}", rental.rental_date, rental.status, f"₱{rental.total_cost:.2f}"))
+            formatted_date = self.format_date(rental.rental_date)
+            tree.insert("", END, values=(rental.customer.name, f"{rental.vehicle.make} {rental.vehicle.model}", formatted_date, rental.status, f"₱{rental.total_cost:.2f}"))
 
     def create_stat_card(self, parent, label, value, color, col):
         card = tb.Frame(parent, bootstyle=color, padding=20)
@@ -326,19 +355,22 @@ class CarRentalApp(tb.Window):
         grid_frame = tb.Frame(number_frame)
         grid_frame.pack(fill=X, padx=5, pady=5)
 
+        vcmd_year = (self.register(self.validate_year), '%P')
+        vcmd_price = (self.register(self.validate_price), '%P')
+
         tb.Label(grid_frame, text="Year").grid(row=0, column=0, sticky=W)
-        year_entry = tb.Entry(grid_frame)
+        year_entry = tb.Entry(grid_frame, validate="key", validatecommand=vcmd_year)
         year_entry.grid(row=1, column=0, sticky=EW, padx=(0, 5))
 
         tb.Label(grid_frame, text="Plate Number Prefix (e.g. ABC-123)").grid(row=0, column=1, sticky=W)
         reg_entry = tb.Entry(grid_frame)
         reg_entry.grid(row=1, column=1, sticky=EW, padx=(5, 0))
-        
+
         grid_frame.columnconfigure(0, weight=1)
         grid_frame.columnconfigure(1, weight=1)
 
         tb.Label(grid_frame, text="Rental Price Per Day (₱)").grid(row=2, column=0, sticky=W, pady=(10, 0))
-        rate_entry = tb.Entry(grid_frame)
+        rate_entry = tb.Entry(grid_frame, validate="key", validatecommand=vcmd_price)
         rate_entry.grid(row=3, column=0, sticky=EW, padx=(0, 5), pady=5)
 
         tb.Label(grid_frame, text="Quantity / Stocks").grid(row=2, column=1, sticky=W, pady=(10, 0))
@@ -348,27 +380,42 @@ class CarRentalApp(tb.Window):
 
         def save():
             try:
-                if not brand_entry.get() or not model_entry.get() or not reg_entry.get():
+                brand = brand_entry.get().strip()
+                model = model_entry.get().strip()
+                reg = reg_entry.get().strip()
+                year_str = year_entry.get().strip()
+                rate_str = rate_entry.get().strip()
+
+                if not brand or not model or not reg:
                     messagebox.showwarning("Incomplete Form", "Please fill in the Brand, Model, and Plate Number.")
                     return
 
+                if not year_str:
+                    messagebox.showwarning("Missing Year", "Please enter the vehicle Year.")
+                    return
+
+                if not rate_str:
+                    messagebox.showwarning("Missing Price", "Please enter the Rental Price Per Day.")
+                    return
+
                 qty = int(qty_spin.get())
-                
+
                 self.service.add_vehicle_batch(
-                    make=brand_entry.get(),
-                    model=model_entry.get(),
-                    year=int(year_entry.get() or 0),
-                    base_registration=reg_entry.get(), # Use raw input, let service handle suffix
-                    daily_rate=float(rate_entry.get() or 0),
+                    make=brand,
+                    model=model,
+                    year=int(year_str),
+                    base_registration=reg,
+                    daily_rate=float(rate_str),
                     quantity=qty
                 )
-                
+
                 msg = "New car added successfully!" if qty == 1 else f"{qty} new cars added to stock!"
                 messagebox.showinfo("Success", msg)
                 dialog.destroy()
                 self.refresh_vehicle_list()
-            except ValueError:
-                messagebox.showerror("Numbers Only", "Please enter valid numbers for Year, Price, and Quantity.")
+            except ValueError as e:
+                err = str(e) if str(e) else "Please enter valid numbers for Year, Price, and Quantity."
+                messagebox.showerror("Invalid Input", err)
             except Exception as e:
                 messagebox.showerror("Error", f"Could not save car(s): {str(e)}")
 
@@ -454,8 +501,11 @@ class CarRentalApp(tb.Window):
         grid_frame = tb.Frame(form_frame)
         grid_frame.pack(fill=X, pady=10)
 
+        vcmd_year = (self.register(self.validate_year), '%P')
+        vcmd_price = (self.register(self.validate_price), '%P')
+
         tb.Label(grid_frame, text="Year").grid(row=0, column=0, sticky=W)
-        year_entry = tb.Entry(grid_frame)
+        year_entry = tb.Entry(grid_frame, validate="key", validatecommand=vcmd_year)
         year_entry.grid(row=1, column=0, sticky=EW, padx=(0, 5))
         year_entry.insert(0, str(vehicle.year))
 
@@ -467,19 +517,12 @@ class CarRentalApp(tb.Window):
         if is_group:
             reg_entry.configure(state="disabled")
             tb.Label(form_frame, text="Batch Editing Mode: Plate Number change disabled.", font=("Helvetica", 8), bootstyle="secondary").pack(anchor=W)
-        else:
-            # It's a single unit.
-            # If we edit stock here, it will add clones of THIS unit or remove OTHERS.
-            pass
         
         grid_frame.columnconfigure(0, weight=1)
         grid_frame.columnconfigure(1, weight=1)
 
-        # Get current stock count for this configuration
-        # Already fetched above as current_stock
-
         tb.Label(form_frame, text="Rental Price Per Day (₱)").pack(anchor=W, pady=(10, 0))
-        rate_entry = tb.Entry(form_frame)
+        rate_entry = tb.Entry(form_frame, validate="key", validatecommand=vcmd_price)
         rate_entry.pack(fill=X, pady=5)
         rate_entry.insert(0, str(vehicle.daily_rate))
         
@@ -491,98 +534,77 @@ class CarRentalApp(tb.Window):
 
         def update():
             try:
-                # 1. Update Details
-                # If Single: Update specific ID
-                # If Group: Update ALL vehicles of this model? Or just properties?
-                # Usually "Batch Edit" implies updating common properties.
+                new_make = brand_entry.get().strip()
+                new_model = model_entry.get().strip()
                 
-                # IMPORTANT: If changing Make/Model/Year in Group Mode, we update ALL matching that previous sig.
-                # However, for simplicity/safety, let's say Group Edit mainly handles Price and Stocks.
-                # But allowing rename is powerful.
-                
-                # Logic:
-                # If is_group: fetch all old_matching vehicles, update them.
-                # If single: update just one.
-                
-                new_make = brand_entry.get()
-                new_model = model_entry.get()
+                if not new_make or not new_model:
+                    messagebox.showwarning("Incomplete Form", "Brand and Model cannot be empty.")
+                    return
+
                 new_year = int(year_entry.get())
                 new_rate = float(rate_entry.get())
-                
-                if is_group:
-                    # To be safe, we update all vehicles that matched the OLD signature (which we have in 'vehicle')
-                    # But wait, we didn't store the old signature strictly. We have 'vehicle' object which is detached or attached.
-                    # It's safer to re-query using the ID of the proxy vehicle if we assume it hasn't changed yet,
-                    # OR query by the attributes we extracted.
-                    
-                    # Simpler: We are doing stock adjustment. That's the main goal.
-                    pass 
-                    # If user changes Brand name for the group, we should update all. 
-                    # For this step, let's implement Single Update as normal, and for Group, rely on Stock Adjustment predominantly,
-                    # OR loop through all.
-                    
-                    # Let's perform updates on the "representative" vehicle's siblings if needed.
-                    # Getting all siblings:
-                    siblings = self.service.session.query(Vehicle).filter_by(make=vehicle.make, model=vehicle.model, year=vehicle.year).all() if hasattr(self.service, 'session') else []
-                    # Wait, service session is local to method. We need a service method for "update_batch".
-                    # Let's just update the SINGLE representative for now + Stock logic, 
-                    # OR correctly: Ask service to update_batch.
-                    
-                    # For now, to satisfy "Duplicate data" issue, the VIEW is fixed.
-                    # To satisfy "Edit", let's update the single one (if single) or just handle stocks (if group).
-                    # Actually, if I update the representative in Group mode, it splits from the group!
-                    # That's dangerous.
-                    
-                    # Let's strictly use `adjust_vehicle_stock` for the generic params.
-                    # And if not changing key params, proceed.
-                    pass
+                target_qty = int(stock_spin.get())
 
-                # Start with Single Update logic as baseline
-                # If Group, we might skip this or apply to all.
-                # Let's KISS: If Is Group, we Disable Make/Model/Year editing? 
-                # No, user might want to fix a typo for all.
-                
-                # Let's just update the specific target ID (v_id) always.
-                # If it was a group selection, v_id is the proxy. 
-                # Updating it makes it leave the group visually if Make/Model changes.
-                
-                if not is_group:
+                if is_group:
+                    # Step 1: If make/model/year/rate changed, update ALL vehicles in this group
+                    old_make = vehicle.make
+                    old_model = vehicle.model
+                    old_year = vehicle.year
+                    properties_changed = (
+                        new_make != old_make or
+                        new_model != old_model or
+                        new_year != old_year or
+                        new_rate != vehicle.daily_rate
+                    )
+                    if properties_changed:
+                        self.service.update_vehicle_batch(
+                            old_make=old_make,
+                            old_model=old_model,
+                            old_year=old_year,
+                            new_make=new_make,
+                            new_model=new_model,
+                            new_year=new_year,
+                            new_rate=new_rate
+                        )
+
+                    # Step 2: Adjust stock using NEW attributes so we find the group correctly
+                    success, msg = self.service.adjust_vehicle_stock(
+                        make=new_make,
+                        model=new_model,
+                        year=new_year,
+                        current_reg=vehicle.registration,
+                        daily_rate=new_rate,
+                        target_qty=target_qty
+                    )
+                    result_msg = msg
+                else:
+                    # Single vehicle update
                     self.service.update_vehicle(
                         vehicle_id=v_id,
                         make=new_make,
                         model=new_model,
                         year=new_year,
-                        registration=reg_entry.get(),
+                        registration=reg_entry.get().strip(),
                         daily_rate=new_rate
                     )
-                else:
-                    # If group, we really just care about Stock Adjustment usually.
-                    # But if they changed Rate, we should update ALL.
-                    # We need a service method `update_vehicle_batch_properties`.
-                    # For now, let's just stick to Stock Adjustment being the primary function of Group Edit.
-                    pass
+                    # Adjust stock for the group this vehicle belongs to
+                    success, msg = self.service.adjust_vehicle_stock(
+                        make=new_make,
+                        model=new_model,
+                        year=new_year,
+                        current_reg=reg_entry.get().strip(),
+                        daily_rate=new_rate,
+                        target_qty=target_qty
+                    )
+                    result_msg = msg
 
-                # 2. Handle Stock Adjustment (Primary Goal)
-                target_qty = int(stock_spin.get())
-                
-                # For group edit, we should likely update the batch properties if they changed?
-                # Let's assume for this iteration, Group Edit = Stock Management + Rate Update.
-                
-                success, msg = self.service.adjust_vehicle_stock(
-                    make=vehicle.make, # Use ORIGINAL props to find them
-                    model=vehicle.model,
-                    year=vehicle.year,
-                    current_reg=vehicle.registration,
-                    daily_rate=new_rate, # Use NEW rate for new cars
-                    target_qty=target_qty
-                )
-                
-                messagebox.showinfo("Success", f"Operation Complete!\n{msg}")
+                messagebox.showinfo("Success", f"Operation Complete!\n{result_msg}")
                 dialog.destroy()
                 self.refresh_vehicle_list()
-                
-            except ValueError:
-                messagebox.showerror("Error", "Invalid numbers entered.")
+
+            except ValueError as e:
+                err_msg = str(e) if str(e) else "Invalid numbers entered. Please check Year, Rate and Stock fields."
+                messagebox.showerror("Validation Error", err_msg)
             except Exception as e:
                 messagebox.showerror("Error", f"Update failed: {str(e)}")
 
@@ -720,7 +742,9 @@ class CarRentalApp(tb.Window):
         for r in rentals:
             search_pool = f"{r.customer.name} {r.vehicle.make} {r.vehicle.model} {r.status}".lower()
             if filter_text.lower() in search_pool:
-                self.rental_tree.insert("", END, values=(r.customer.name, f"{r.vehicle.make} {r.vehicle.model}", r.rental_date, r.return_date, f"₱{r.total_cost:.2f}", r.status), iid=r.id)
+                rental_date = self.format_date(r.rental_date)
+                return_date = self.format_date(r.return_date)
+                self.rental_tree.insert("", END, values=(r.customer.name, f"{r.vehicle.make} {r.vehicle.model}", rental_date, return_date, f"₱{r.total_cost:.2f}", r.status), iid=r.id)
 
     def add_rental_dialog(self):
         dialog = tb.Toplevel(title="Quick Booking - New Rental")
@@ -950,19 +974,37 @@ class CarRentalApp(tb.Window):
         if not selected:
             messagebox.showwarning("No Selection", "Please select a vehicle to delete.")
             return
-        
-        v_id = int(selected[0])
-        if messagebox.askyesno("Confirm Delete", "Are you sure you want to delete this vehicle?"):
-            try:
-                if self.service.delete_vehicle(v_id):
+
+        sel_id = selected[0]
+        is_group = str(sel_id).startswith("group_")
+
+        if is_group:
+            # Get make/model/year from tree row values
+            values = self.vehicle_tree.item(sel_id, 'values')
+            make, model, year_str = values[0], values[1], values[2]
+            confirm_msg = f"Delete ALL vehicles in group '{make} {model} ({year_str})'?\nOnly Available vehicles will be removed."
+            if messagebox.askyesno("Confirm Group Delete", confirm_msg):
+                try:
+                    count = self.service.delete_vehicle_group(make, model, int(year_str))
                     self.refresh_vehicle_list()
-                    messagebox.showinfo("Success", "Vehicle deleted")
-                else:
-                    messagebox.showwarning("Not Found", "Vehicle could not be found.")
-            except ValueError as e:
-                messagebox.showerror("Restriction", str(e))
-            except Exception as e:
-                messagebox.showerror("Error", f"An unexpected error occurred: {str(e)}")
+                    messagebox.showinfo("Success", f"{count} vehicle(s) deleted from group.")
+                except ValueError as e:
+                    messagebox.showerror("Restriction", str(e))
+                except Exception as e:
+                    messagebox.showerror("Error", f"An unexpected error occurred: {str(e)}")
+        else:
+            v_id = int(sel_id)
+            if messagebox.askyesno("Confirm Delete", "Are you sure you want to delete this vehicle?"):
+                try:
+                    if self.service.delete_vehicle(v_id):
+                        self.refresh_vehicle_list()
+                        messagebox.showinfo("Success", "Vehicle deleted.")
+                    else:
+                        messagebox.showwarning("Not Found", "Vehicle could not be found.")
+                except ValueError as e:
+                    messagebox.showerror("Restriction", str(e))
+                except Exception as e:
+                    messagebox.showerror("Error", f"An unexpected error occurred: {str(e)}")
 
     def delete_customer(self):
         selected = self.customer_tree.selection()
